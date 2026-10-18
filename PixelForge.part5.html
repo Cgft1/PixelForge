@@ -1,0 +1,173 @@
+<script>
+// Photoshop-style freehand lasso selection for PixelForge 3.7
+(() => {
+  const lassoBtn = document.createElement('button');
+  lassoBtn.className = 'tool';
+  lassoBtn.dataset.tool = 'lasso';
+  lassoBtn.title = 'Лассо (L)';
+  lassoBtn.textContent = '⌁';
+  document.querySelector('.left')?.appendChild(lassoBtn);
+
+  const overlay = document.createElement('canvas');
+  overlay.id = 'selectionCanvas';
+  Object.assign(overlay.style, {
+    position:'absolute', left:'0', top:'0', zIndex:'15', pointerEvents:'none', background:'transparent'
+  });
+  canvasWrap.appendChild(overlay);
+  const sctx = overlay.getContext('2d');
+
+  let points = [];
+  let selecting = false;
+  let moving = false;
+  let moveStart = null;
+  let moveBase = null;
+  let movePixels = null;
+  let originalMovePoints = null;
+  let dashOffset = 0;
+  let clipboard = null;
+
+  function syncOverlay(){
+    if(overlay.width!==canvas.width || overlay.height!==canvas.height){
+      overlay.width=canvas.width; overlay.height=canvas.height;
+    }
+  }
+  function pathFrom(pts=points){
+    const p=new Path2D();
+    if(!pts.length) return p;
+    p.moveTo(pts[0].x,pts[0].y);
+    for(let i=1;i<pts.length;i++) p.lineTo(pts[i].x,pts[i].y);
+    if(pts.length>2) p.closePath();
+    return p;
+  }
+  function drawLasso(){
+    syncOverlay();
+    sctx.clearRect(0,0,overlay.width,overlay.height);
+    if(points.length<2) return;
+    const p=pathFrom();
+    sctx.save();
+    sctx.lineWidth=1;
+    sctx.setLineDash([5,5]);
+    sctx.lineDashOffset=dashOffset;
+    sctx.strokeStyle='#000'; sctx.stroke(p);
+    sctx.lineDashOffset=dashOffset+5;
+    sctx.strokeStyle='#fff'; sctx.stroke(p);
+    sctx.restore();
+  }
+  function animate(){ dashOffset=(dashOffset+0.7)%10; if(points.length>1) drawLasso(); requestAnimationFrame(animate); }
+  requestAnimationFrame(animate);
+
+  function clearSelection(){ points=[]; selecting=false; moving=false; sctx.clearRect(0,0,overlay.width,overlay.height); }
+  function inside(x,y){ return points.length>2 && sctx.isPointInPath(pathFrom(),x,y); }
+  function setLasso(){
+    tool='lasso';
+    document.querySelectorAll('.tool').forEach(b=>b.classList.toggle('active',b===lassoBtn));
+    const n=document.getElementById('toolName'); if(n) n.textContent='Лассо';
+    canvas.style.cursor='crosshair';
+  }
+  lassoBtn.addEventListener('click',setLasso);
+
+  function extractSelection(){
+    const tmp=document.createElement('canvas'); tmp.width=canvas.width; tmp.height=canvas.height;
+    const t=tmp.getContext('2d');
+    t.save(); t.clip(pathFrom()); t.drawImage(canvas,0,0); t.restore();
+    return tmp;
+  }
+  function clearSelectedPixels(){
+    ctx.save(); ctx.globalCompositeOperation='destination-out'; ctx.fillStyle='#000'; ctx.fill(pathFrom()); ctx.restore();
+  }
+  function copySelection(){ if(points.length<3)return; clipboard=extractSelection(); }
+  function cutSelection(){ if(points.length<3)return; saveHistory(); copySelection(); clearSelectedPixels(); captureLayer(); renderComposite(); }
+  function deleteSelection(){ if(points.length<3)return; saveHistory(); clearSelectedPixels(); captureLayer(); renderComposite(); }
+  function pasteSelection(){
+    if(!clipboard)return;
+    saveHistory();
+    ctx.drawImage(clipboard,0,0);
+    captureLayer(); renderComposite();
+  }
+
+  canvas.addEventListener('pointerdown', e => {
+    if(tool!=='lasso') return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    const p=coords(e); canvas.setPointerCapture(e.pointerId);
+    if(points.length>2 && inside(p.x,p.y)){
+      saveHistory();
+      moving=true; selecting=false; moveStart=p;
+      originalMovePoints=points.map(q=>({...q}));
+      movePixels=extractSelection();
+      clearSelectedPixels();
+      moveBase=ctx.getImageData(0,0,canvas.width,canvas.height);
+      return;
+    }
+    points=[p]; selecting=true; moving=false; drawLasso();
+  }, true);
+
+  canvas.addEventListener('pointermove', e => {
+    if(tool!=='lasso') return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    const p=coords(e);
+    if(selecting){
+      const last=points[points.length-1];
+      if(!last || Math.hypot(p.x-last.x,p.y-last.y)>2){ points.push(p); drawLasso(); }
+    } else if(moving && moveBase && movePixels){
+      const dx=p.x-moveStart.x, dy=p.y-moveStart.y;
+      ctx.putImageData(moveBase,0,0);
+      ctx.drawImage(movePixels,dx,dy);
+      points=originalMovePoints.map(q=>({x:q.x+dx,y:q.y+dy}));
+      renderComposite(); drawLasso();
+    }
+  }, true);
+
+  canvas.addEventListener('pointerup', e => {
+    if(tool!=='lasso') return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    if(selecting){
+      const p=coords(e); points.push(p); selecting=false;
+      if(points.length<3) clearSelection(); else drawLasso();
+    } else if(moving){
+      moving=false; moveBase=null; movePixels=null; originalMovePoints=null;
+      captureLayer(); renderComposite(); drawLasso();
+    }
+  }, true);
+
+  canvas.addEventListener('pointercancel', e=>{
+    if(tool==='lasso'){ e.stopImmediatePropagation(); selecting=false; moving=false; }
+  }, true);
+
+  document.addEventListener('keydown', e => {
+    if(e.target.closest?.('.pf-modal') || ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) return;
+    const k=e.key.toLowerCase();
+    if(k==='l' && !e.ctrlKey && !e.metaKey){ e.preventDefault(); e.stopImmediatePropagation(); setLasso(); return; }
+    if(tool==='lasso' && e.key==='Escape'){ e.preventDefault(); clearSelection(); return; }
+    if(tool==='lasso' && e.key==='Delete'){ e.preventDefault(); deleteSelection(); return; }
+    if(tool==='lasso' && (e.ctrlKey||e.metaKey)){
+      if(k==='c'){ e.preventDefault(); copySelection(); }
+      else if(k==='x'){ e.preventDefault(); cutSelection(); }
+      else if(k==='v'){ e.preventDefault(); pasteSelection(); }
+      else if(k==='d'){ e.preventDefault(); clearSelection(); }
+      else if(k==='a'){
+        e.preventDefault();
+        points=[{x:0,y:0},{x:canvas.width,y:0},{x:canvas.width,y:canvas.height},{x:0,y:canvas.height}]; drawLasso();
+      }
+    }
+  }, true);
+
+  const oldRenderComposite=renderComposite;
+  renderComposite=function(){ oldRenderComposite(); syncOverlay(); if(points.length>1) drawLasso(); };
+
+  document.getElementById('pfTabs')?.addEventListener('click', e=>{
+    const b=e.target.closest('button[data-tab]'); if(!b)return;
+    const tab=b.dataset.tab;
+    if(tab==='selection'){
+      lassoBtn.style.display='';
+      document.querySelectorAll('.tool').forEach(x=>{ if(x.dataset.tool==='picker') x.style.display=''; });
+      setLasso();
+    } else if(tab!=='drawing') lassoBtn.style.display='none';
+    else lassoBtn.style.display='none';
+  });
+
+  const tips=[...document.querySelectorAll('.panel h3')].find(h=>h.textContent.includes('Подсказки'))?.parentElement;
+  if(tips){ const t=document.createElement('div'); t.className='small'; t.style.marginTop='8px'; t.innerHTML='<b>Лассо:</b> L — свободное выделение. Тяните внутри выделения, чтобы переместить. Delete — удалить, Ctrl+C/X/V — копировать/вырезать/вставить, Ctrl+D — снять выделение.'; tips.appendChild(t); }
+
+  syncOverlay();
+})();
+</script>
