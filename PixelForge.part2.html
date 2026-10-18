@@ -1,0 +1,55 @@
+ </aside>
+ <main class="workspace" id="workspace">
+  <div id="emptyHint">🖼<br><b>Добро пожаловать в PixelForge</b><br>Откройте изображение или начните рисовать<br><span class="small">Совет: используйте «Открыть» в верхней панели</span></div>
+  <div class="canvasWrap" id="canvasWrap"><canvas id="displayCanvas" width="1200" height="750" style="pointer-events:none"></canvas><canvas id="canvas" width="1200" height="750" style="position:absolute;left:0;top:0;opacity:1;pointer-events:auto;background:transparent"></canvas><div id="brushCursor"></div></div>
+  <div class="status"><span id="statusText">Новый документ · 1200 × 750 px</span><span>PixelForge 0.1</span></div>
+ </main>
+ <aside class="right">
+  <div class="panel"><h3>Инструмент</h3><div id="toolName">Кисть</div>
+   <label>Размер кисти</label><input id="size2" type="range" min="1" max="80" value="12">
+   <label>Цвет</label><input id="color2" type="color" value="#202020">
+   <label>Текст (для инструмента T)</label><input id="textValue" type="text" value="Ваш текст">
+   <label>Размер текста</label><input id="fontSize" type="number" min="8" max="180" value="48">
+   <button id="addText" style="width:100%;margin-top:9px">Добавить текст по центру</button>
+  </div>
+  <div class="panel"><h3>Коррекция изображения</h3>
+   <label>Яркость <span id="brightVal">100%</span></label><input id="brightness" type="range" min="0" max="200" value="100">
+   <label>Контраст <span id="contrastVal">100%</span></label><input id="contrast" type="range" min="0" max="200" value="100">
+   <label>Насыщенность <span id="satVal">100%</span></label><input id="saturation" type="range" min="0" max="200" value="100">
+   <label>Оттенок <span id="hueVal">0°</span></label><input id="hue" type="range" min="-180" max="180" value="0">
+   <label>Температура <span id="tempVal">0</span></label><input id="temperature" type="range" min="-100" max="100" value="0">
+   <label>Гамма <span id="gammaVal">1.00</span></label><input id="gamma" type="range" min="40" max="250" value="100">
+   <label>Экспозиция <span id="exposureVal">0</span></label><input id="exposure" type="range" min="-100" max="100" value="0">
+   <div class="row" style="margin-top:10px"><button id="applyAdjust">Применить</button><button id="resetAdjust">Сбросить</button></div>
+   <label>Быстрые фильтры</label><div class="row"><button id="gray">Ч/Б</button><button id="sepia">Сепия</button></div>
+   <button id="invert" style="width:100%;margin-top:7px">Инверсия цветов</button>
+  </div>
+  <div class="panel"><h3>Слои</h3><div class="row"><button id="addLayer">＋ Новый слой</button><button id="deleteLayer">− Удалить</button></div>
+   <div id="layerList"></div>
+   <div class="row" style="margin-top:8px"><button id="layerUp">↑ Вверх</button><button id="layerDown">↓ Вниз</button></div>
+   <label>Непрозрачность слоя <span id="opacityValue">100%</span></label><input id="layerOpacity" type="range" min="0" max="100" value="100">
+   <button id="clearBtn" style="width:100%;margin-top:10px">Очистить выбранный слой</button>
+  </div>
+  <div class="panel"><h3>Подсказки</h3><div class="small">B — кисть · E — ластик · G — заливка · L — линия<br>R — прямоугольник · O — эллипс · T — текст · I — пипетка<br>Ctrl+Z — отмена · Ctrl+Y — повтор · Ctrl+S — экспорт<br>Рисуйте мышью по холсту.<br>Экспорт сохраняет PNG-файл.</div></div>
+ </aside>
+</div>
+<div id="keySettings" class="pf-modal hidden"><div class="pf-dialog"><h2>Настройка клавиш</h2><p class="small">Нажмите «Назначить», затем нужную клавишу. Изменения сохраняются в этом браузере.</p><div id="shortcutRows"></div><div class="row"><button id="resetKeys">По умолчанию</button><button id="closeKeys">Готово</button></div></div></div>
+<input type="file" id="fileInput" accept="image/*" class="hidden">
+<script>
+const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d'); const displayCanvas=document.getElementById('displayCanvas'),dctx=displayCanvas.getContext('2d'); const canvasWrap=document.getElementById('canvasWrap'); let zoom=0.75, rotation=0; let historyLayers=[], redoLayers=[];
+const fileInput=document.getElementById('fileInput'), hint=document.getElementById('emptyHint');
+let tool='brush',drawing=false,startX=0,startY=0,lastX=0,lastY=0,baseImage=null,undoStack=[],redoStack=[],hasImage=false;
+let layers=[{name:'Слой 1',data:null,visible:true,opacity:100,cache:null}], activeLayer=0, layerCounter=1;
+function captureLayer(){if(layers[activeLayer]){const l=layers[activeLayer];l.data=ctx.getImageData(0,0,canvas.width,canvas.height);if(!l.cache||l.cache.width!==canvas.width||l.cache.height!==canvas.height){l.cache=document.createElement('canvas');l.cache.width=canvas.width;l.cache.height=canvas.height;}l.cache.getContext('2d').putImageData(l.data,0,0);}}
+function loadLayer(){const l=layers[activeLayer];ctx.clearRect(0,0,canvas.width,canvas.height);if(l&&l.data){try{ctx.putImageData(l.data,0,0)}catch(e){}} renderComposite();}
+function renderComposite(){if(!displayCanvas)return;if(displayCanvas.width!==canvas.width||displayCanvas.height!==canvas.height){displayCanvas.width=canvas.width;displayCanvas.height=canvas.height;}dctx.clearRect(0,0,displayCanvas.width,displayCanvas.height);for(const l of layers){if(!l.visible||!l.data)continue;if(!l.cache||l.cache.width!==canvas.width||l.cache.height!==canvas.height){l.cache=document.createElement('canvas');l.cache.width=canvas.width;l.cache.height=canvas.height;l.cache.getContext('2d').putImageData(l.data,0,0);}dctx.globalAlpha=l.opacity/100;dctx.drawImage(l.cache,0,0);}dctx.globalAlpha=1;applyView();}
+function saveHistory(){captureLayer();historyLayers.push(layers.map(l=>({name:l.name,data:l.data?new ImageData(new Uint8ClampedArray(l.data.data),l.data.width,l.data.height):null,visible:l.visible,opacity:l.opacity,cache:null})));if(historyLayers.length>40)historyLayers.shift();redoLayers=[];}
+function restoreHistory(stack,other){if(!stack.length)return;captureLayer();other.push(layers.map(l=>({name:l.name,data:l.data?new ImageData(new Uint8ClampedArray(l.data.data),l.data.width,l.data.height):null,visible:l.visible,opacity:l.opacity,cache:null})));layers=stack.pop().map(l=>({...l,cache:null}));activeLayer=Math.min(activeLayer,layers.length-1);loadLayer();renderComposite();renderLayers();updateStatus();}
+function applyView(){canvasWrap.style.width=canvas.width+'px';canvasWrap.style.height=canvas.height+'px';canvasWrap.style.transform=`scale(${zoom}) rotate(${rotation}deg)`;displayCanvas.style.width=canvas.width+'px';displayCanvas.style.height=canvas.height+'px';canvas.style.width=canvas.width+'px';canvas.style.height=canvas.height+'px';document.getElementById('zoomLabel').textContent=Math.round(zoom*100)+'%';document.getElementById('rotateLabel').textContent=((rotation%360)+360)%360+'°';}
+function renderLayers(){const list=document.getElementById('layerList');if(!list)return;list.innerHTML='';
+ layers.forEach((l,i)=>{const row=document.createElement('div');row.className='layer';row.style.cursor='pointer';row.style.outline=i===activeLayer?'1px solid #619cff':'none';
+ const name=document.createElement('span');name.textContent=(l.visible?'👁':'◌')+'　'+l.name;name.style.overflow='hidden';name.style.textOverflow='ellipsis';name.style.whiteSpace='nowrap';
+ const vis=document.createElement('button');vis.textContent=l.visible?'◉':'○';vis.title='Показать/скрыть';vis.style.padding='3px 6px';vis.onclick=(e)=>{e.stopPropagation();captureLayer();l.visible=!l.visible;renderComposite();renderLayers();};
+ row.append(name,vis);row.onclick=()=>{captureLayer();activeLayer=i;loadLayer();document.getElementById('layerOpacity').value=l.opacity;document.getElementById('opacityValue').textContent=l.opacity+'%';renderLayers();};list.appendChild(row);});
+}
+function composeLayers(){captureLayer();const out=document.createElement('canvas');out.width=canvas.width;out.height=canvas.height;const o=out.getContext('2d');layers.forEach(l=>{if(l.visible&&l.data){const tmp=document.createElement('canvas');tmp.width=canvas.width;tmp.height=canvas.height;tmp.getContext('2d').putImageData(l.data,0,0);o.globalAlpha=l.opacity/100;o.drawImage(tmp,0,0);}});o.globalAlpha=1;return out;}
