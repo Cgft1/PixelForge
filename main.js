@@ -22,8 +22,10 @@ function createWindow() {
     fs.readFileSync(path.join(__dirname, `PixelForge.part${n}.html`), 'utf8')
   );
   let html = parts.join('');
-  const lassoExtension = fs.readFileSync(path.join(__dirname, 'PixelForge.part5.html'), 'utf8');
-  html = html.replace('</body>', `${lassoExtension}\n</body>`);
+  const extensions = [5, 6].map((n) =>
+    fs.readFileSync(path.join(__dirname, `PixelForge.part${n}.html`), 'utf8')
+  ).join('\n');
+  html = html.replace('</body>', `${extensions}\n</body>`);
 
   const tempHtml = path.join(app.getPath('temp'), 'PixelForge-3.7.html');
   fs.writeFileSync(tempHtml, html, 'utf8');
